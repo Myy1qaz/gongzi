@@ -615,7 +615,7 @@ function generateSalaryHTML() {
     hasData = true;
     html += '<div class="dept-section"><div class="dept-title">' + deptLabel + '</div>';
     html += '<table><thead><tr><th>序号</th><th>岗位</th><th>姓名</th><th>入职时间</th><th>基本底薪</th><th>月基本天数</th><th>旷工天数</th><th>实际出勤</th><th>开工资天数</th><th>基础工资</th><th>全勤补贴</th><th>加班补助</th><th>奖金</th><th>应发工资</th><th>预支工资</th><th>罚款</th><th>实发工资</th><th>签字确认</th></tr></thead><tbody>';
-    let sPayable = 0, sAdv = 0, sPenalty = 0, sNet = 0;
+    let sBase = 0, sAttSum = 0, sOt = 0, sBon = 0, sPayable = 0, sAdv = 0, sPenalty = 0, sNet = 0;
     emps.forEach((e, i) => {
       const a = att[i] || { absDays: 0, workDays: 0, otHours: 0, otRate: 0, advance: 0, penalty: 0 };
       const actual = Math.max(0, (a.workDays || 0) - (a.absDays || 0));
@@ -625,11 +625,12 @@ function generateSalaryHTML() {
       const adv = Math.round(a.advance || 0);
       const penalty = Math.round(a.penalty || 0);
       const net = Math.round(payable - adv - penalty);
+      sBase += baseWage; sAttSum += (e.attendance || 0); sOt += otSub; sBon += (e.bonus || 0);
       sPayable += payable; sAdv += adv; sPenalty += penalty; sNet += net;
       html += '<tr><td>' + (i + 1) + '</td><td>' + deptLabel + '</td><td>' + (e.name || '--') + '</td><td>' + (e.hireDate || '--') + '</td><td>' + (e.baseSalary || 0) + '</td><td>' + md + '</td><td>' + (a.absDays || 0) + '</td><td>' + actual + '</td><td>' + actual + '</td><td>' + baseWage + '</td><td>' + (e.attendance || 0) + '</td><td>' + otSub + '</td><td>' + (e.bonus || 0) + '</td><td>' + payable + '</td><td>' + adv + '</td><td style="color:#d32f2f">' + penalty + '</td><td style="color:#1a73e8;font-weight:700">' + net + '</td><td>' + (salSigs[dept][i] || '') + '</td></tr>';
     });
     gPayable += sPayable; gAdv += sAdv; gPenalty += sPenalty; gNet += sNet;
-    html += '</tbody><tfoot><tr class="subtotal-row"><td colspan="13">合计</td><td>' + sPayable + '</td><td>' + sAdv + '</td><td style="color:#d32f2f">' + sPenalty + '</td><td style="color:#1a73e8">' + sNet + '</td><td></td></tr></tfoot></table></div>';
+    html += '</tbody><tfoot><tr class="subtotal-row"><td colspan="9">合计</td><td>' + sBase + '</td><td>' + sAttSum + '</td><td>' + sOt + '</td><td>' + sBon + '</td><td>' + sPayable + '</td><td>' + sAdv + '</td><td style="color:#d32f2f">' + sPenalty + '</td><td style="color:#1a73e8">' + sNet + '</td><td></td></tr></tfoot></table></div>';
   });
 
   if (hasData) {
