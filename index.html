@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>餐馆工资明细表</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Microsoft YaHei','PingFang SC',sans-serif;background:#f0f2f5;color:#333;font-size:14px}
@@ -56,6 +57,8 @@ td input[type="number"]{min-width:70px}
 .btn-export{background:#9c27b0;color:#fff}.btn-export:hover{background:#6a1b9a}
 .btn-save{background:#4caf50;color:#fff}.btn-save:hover{background:#2e7d32}
 .btn-clear{background:#f44336;color:#fff}.btn-clear:hover{background:#c62828}
+
+.btn-excel{background:#2e7d32;color:#fff}.btn-excel:hover{background:#1b5e20}
 .save-hint{font-size:12px;color:#888;text-align:center;margin-top:6px}
 .save-hint.saved{color:#4caf50}
 /* 打印区域 - 仅工资计算表 */
@@ -199,6 +202,7 @@ td input[type="number"]{min-width:70px}
 
   <div class="actions">
     <button class="btn btn-print" onclick="printSalary()">🖨 打印工资计算表</button>
+    <button class="btn btn-excel" onclick="exportExcel()">📊 导出Excel</button>
     <button class="btn btn-clear" onclick="clearAllData()">🗑 清除全部数据</button>
   </div>
   <div class="save-hint" id="saveHint">数据自动保存，刷新或关闭后重新打开不会丢失</div>
@@ -216,6 +220,7 @@ body{font-family:'Microsoft YaHei',sans-serif;padding:20px;color:#333}
 table{width:100%;border-collapse:collapse;font-size:12px}
 th,td{border:1px solid #ddd;padding:5px 6px;text-align:center;white-space:nowrap}
 th{background:#e8f0fe;color:#1a73e8;font-weight:600}
+.sig-col{min-width:80px;width:80px}
 .subtotal-row{background:#fff8e1;font-weight:700}
 .subtotal-row td{border-top:2px solid #f9a825}
 .total-row td{background:#e8f5e9;font-weight:700;border-top:3px double #2e7d32;font-size:13px}
@@ -277,9 +282,6 @@ function init() {
   if (!hasData) {
     const now = new Date();
     $('#salaryMonth').value = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-    // 默认各加2行空数据
-    addEmployee('front'); addEmployee('front');
-    addEmployee('back'); addEmployee('back');
   }
   $('#salaryMonth').addEventListener('change', () => { updateTitle(); syncAll(); autoSave(); });
   $('#restaurantName').addEventListener('input', () => { updateTitle(); autoSave(); });
@@ -477,8 +479,8 @@ function syncAttendance() {
         <td>${deptLabel}</td>
         <td>${e.name || '--'}</td>
         <td class="computed">${md}</td>
-        <td><input type="number" value="${a.absDays}" min="0" onchange="attData['${dept}'][${i}].absDays=parseFloat(this.value)||0;recalcAtt('${dept}',${i});autoSave()"></td>
-        <td><input type="number" value="${a.workDays}" min="0" max="${md}" onchange="attData['${dept}'][${i}].workDays=parseFloat(this.value)||0;recalcAtt('${dept}',${i});autoSave()"></td>
+        <td><input type="number" value="${a.absDays}" min="0" onchange="attData['${dept}'][${i}].absDays=parseFloat(this.value)||0;clampAtt('${dept}',${i});recalcAtt('${dept}',${i});autoSave()"></td>
+        <td><input type="number" value="${a.workDays}" min="0" max="${md}" onchange="attData['${dept}'][${i}].workDays=parseFloat(this.value)||0;clampAtt('${dept}',${i});recalcAtt('${dept}',${i});autoSave()"></td>
         <td class="computed" id="attActual_${dept}_${i}">${actual}</td>
         <td><input type="number" value="${a.otHours}" min="0" step="0.5" onchange="attData['${dept}'][${i}].otHours=parseFloat(this.value)||0;syncSalary();autoSave()"></td>
         <td><input type="number" value="${a.otRate}" min="0" step="1" onchange="attData['${dept}'][${i}].otRate=parseFloat(this.value)||0;syncSalary();autoSave()"></td>
@@ -496,6 +498,20 @@ function recalcAtt(dept, i) {
   const el = $(`#attActual_${dept}_${i}`);
   if (el) el.textContent = actual;
   syncSalary();
+}
+
+function clampAtt(dept, i) {
+  const md = getMonthDays();
+  const a = attData[dept][i];
+  let changed = false;
+  if (a.workDays > md) { a.workDays = md; changed = true; }
+  if (a.absDays > md) { a.absDays = md; changed = true; }
+  if (a.workDays < 0) { a.workDays = 0; changed = true; }
+  if (a.absDays < 0) { a.absDays = 0; changed = true; }
+  if (changed) {
+    alert('出勤天数不能超过当月总天数（' + md + '天），已自动调整');
+    syncAttendance();
+  }
 }
 
 // ===== 工资计算表（所有计算值取整数） =====
@@ -627,7 +643,7 @@ function generateSalaryHTML() {
       const net = Math.round(payable - adv - penalty);
       sBase += baseWage; sAttSum += (e.attendance || 0); sOt += otSub; sBon += (e.bonus || 0);
       sPayable += payable; sAdv += adv; sPenalty += penalty; sNet += net;
-      html += '<tr><td>' + (i + 1) + '</td><td>' + deptLabel + '</td><td>' + (e.name || '--') + '</td><td>' + (e.hireDate || '--') + '</td><td>' + (e.baseSalary || 0) + '</td><td>' + md + '</td><td>' + (a.absDays || 0) + '</td><td>' + actual + '</td><td>' + actual + '</td><td>' + baseWage + '</td><td>' + (e.attendance || 0) + '</td><td>' + otSub + '</td><td>' + (e.bonus || 0) + '</td><td>' + payable + '</td><td>' + adv + '</td><td style="color:#d32f2f">' + penalty + '</td><td style="color:#1a73e8;font-weight:700">' + net + '</td><td>' + (salSigs[dept][i] || '') + '</td></tr>';
+      html += '<tr><td>' + (i + 1) + '</td><td>' + deptLabel + '</td><td>' + (e.name || '--') + '</td><td>' + (e.hireDate || '--') + '</td><td>' + (e.baseSalary || 0) + '</td><td>' + md + '</td><td>' + (a.absDays || 0) + '</td><td>' + actual + '</td><td>' + actual + '</td><td>' + baseWage + '</td><td>' + (e.attendance || 0) + '</td><td>' + otSub + '</td><td>' + (e.bonus || 0) + '</td><td>' + payable + '</td><td>' + adv + '</td><td style="color:#d32f2f">' + penalty + '</td><td style="color:#1a73e8;font-weight:700">' + net + '</td><td class="sig-col">' + (salSigs[dept][i] || '') + '</td></tr>';
     });
     gPayable += sPayable; gAdv += sAdv; gPenalty += sPenalty; gNet += sNet;
     html += '</tbody><tfoot><tr class="subtotal-row"><td colspan="9">合计</td><td>' + sBase + '</td><td>' + sAttSum + '</td><td>' + sOt + '</td><td>' + sBon + '</td><td>' + sPayable + '</td><td>' + sAdv + '</td><td style="color:#d32f2f">' + sPenalty + '</td><td style="color:#1a73e8">' + sNet + '</td><td></td></tr></tfoot></table></div>';
@@ -636,6 +652,13 @@ function generateSalaryHTML() {
   if (hasData) {
     html += '<table style="margin-top:16px"><tr class="total-row"><td colspan="14">前厅+后厨 总和</td><td>应发合计 ' + gPayable + '</td><td>预支合计 ' + gAdv + '</td><td style="color:#d32f2f">罚款合计 ' + gPenalty + '</td><td style="color:#1a73e8">实发合计 ' + gNet + '</td><td></td></tr></table>';
   }
+  // 签字栏
+  html += '<table style="margin-top:24px;border:none;width:100%"><tr>';
+  html += '<td style="border:none;padding:12px 20px;width:25%;text-align:left;font-size:14px;font-weight:600">制表人：______________</td>';
+  html += '<td style="border:none;padding:12px 20px;width:25%;text-align:left;font-size:14px;font-weight:600">复核人：______________</td>';
+  html += '<td style="border:none;padding:12px 20px;width:25%;text-align:left;font-size:14px;font-weight:600">审核人：______________</td>';
+  html += '<td style="border:none;padding:12px 20px;width:25%;text-align:left;font-size:14px;font-weight:600">审批人：______________</td>';
+  html += '</tr></table>';
   return html;
 }
 
@@ -656,6 +679,153 @@ function openPrintWindow() {
 
 function printSalary() {
   openPrintWindow();
+}
+
+// ===== 导出Excel =====
+function exportExcel() {
+  const md = getMonthDays();
+  const name = $('#restaurantName').value || 'XXXX';
+  const m = $('#salaryMonth').value;
+  const ym = m ? m.replace('-', '') + '月' : '';
+  const wb = XLSX.utils.book_new();
+
+  // === 公共样式 ===
+  const hdr = { font:{bold:true,color:{rgb:'FFFFFF'},sz:11}, fill:{fgColor:{rgb:'1A73E8'}}, alignment:{horizontal:'center',vertical:'center'}, border:{top:{style:'thin'},bottom:{style:'thin'},left:{style:'thin'},right:{style:'thin'}} };
+  const bdr = {top:{style:'thin'},bottom:{style:'thin'},left:{style:'thin'},right:{style:'thin'}};
+  const ctr = {horizontal:'center',vertical:'center'};
+  const frontBg = {fgColor:{rgb:'EBF5FB'}};
+  const backBg = {fgColor:{rgb:'FEF9E7'}};
+  const subSt = {font:{bold:true,sz:11}, fill:{fgColor:{rgb:'FFF8E1'}}, alignment:ctr, border:{top:{style:'medium'},bottom:{style:'thin'},left:{style:'thin'},right:{style:'thin'}}};
+  const totSt = {font:{bold:true,sz:12}, fill:{fgColor:{rgb:'E8F5E9'}}, alignment:ctr, border:{top:{style:'medium'},bottom:{style:'thin'},left:{style:'thin'},right:{style:'thin'}}};
+
+  function applyBorders(ws, rows, cols) {
+    for (let r = 1; r <= rows; r++) for (let c = 0; c < cols; c++) {
+      const a = XLSX.utils.encode_cell({r,c});
+      if (ws[a]) ws[a].s = {alignment:ctr, border:bdr};
+    }
+  }
+  function mergeDept(ws, col, startRow, endRow) {
+    const merges = [];
+    let s = -1, lbl = '';
+    for (let r = startRow; r <= endRow; r++) {
+      const v = ws[XLSX.utils.encode_cell({r,c:col})]?.v || '';
+      if (v && (v==='前厅'||v==='后厨')) {
+        if (v !== lbl) { if (s>=0 && r-s>1) merges.push({s:{r:s,c:col},e:{r:r-1,c:col}}); s=r; lbl=v; }
+      } else { if (s>=0 && r-s>1) merges.push({s:{r:s,c:col},e:{r:r-1,c:col}}); s=-1; lbl=''; }
+    }
+    if (s>=0 && endRow-s>1) merges.push({s:{r:s,c:col},e:{r:endRow,c:col}});
+    return merges;
+  }
+
+  // === Sheet1: 员工信息表 ===
+  const eH = ['序号','岗位','姓名','入职时间','基本底薪','全勤补贴','奖金','职位'];
+  let eR = [], eI = 1, eSecs = [];
+  ['front','back'].forEach(d => {
+    if (!empData[d].length) return;
+    const dl = d==='front'?'前厅':'后厨';
+    eSecs.push({row:eR.length, label:dl});
+    empData[d].forEach(e => eR.push([eI++, dl, e.name||'', e.hireDate||'', e.baseSalary||0, e.attendance||0, e.bonus||0, e.position||'']));
+  });
+  if (eR.length > 0) {
+    const ws = XLSX.utils.aoa_to_sheet([eH, ...eR]);
+    ws['!cols'] = [{wch:6},{wch:10},{wch:12},{wch:14},{wch:12},{wch:12},{wch:10},{wch:10}];
+    for (let c=0;c<8;c++) { const a=XLSX.utils.encode_cell({r:0,c}); if(ws[a]) ws[a].s=hdr; }
+    applyBorders(ws, eR.length, 8);
+    eSecs.forEach((sec,i)=>{ const bg=i%2===0?frontBg:backBg; const end=i<eSecs.length-1?eSecs[i+1].row:eR.length; for(let r=sec.row;r<end;r++) for(let c=0;c<8;c++){const a=XLSX.utils.encode_cell({r:r+1,c});if(ws[a])ws[a].s={alignment:ctr,border:bdr,fill:bg};} });
+    const m1 = mergeDept(ws, 1, 1, eR.length);
+    if (m1.length) ws['!merges'] = m1;
+    ws['!views'] = [{state:'frozen',ySplit:1}];
+    XLSX.utils.book_append_sheet(wb, ws, '员工信息表');
+  }
+
+  // === Sheet2: 考勤记录表 ===
+  const aH = ['序号','岗位','姓名','月基本天数','旷工天数','上班天数','实际出勤','加班(小时)','加班费/时','预支工资','罚款'];
+  let aR = [], aI = 1, aSecs = [];
+  ['front','back'].forEach(d => {
+    const dl = d==='front'?'前厅':'后厨';
+    if (!empData[d].length) return;
+    aSecs.push({row:aR.length, label:dl});
+    empData[d].forEach((e,i) => {
+      const a = attData[d][i]||{absDays:0,workDays:0,otHours:0,otRate:0,advance:0,penalty:0};
+      aR.push([aI++, dl, e.name||'', md, a.absDays||0, a.workDays||0, Math.max(0,(a.workDays||0)-(a.absDays||0)), a.otHours||0, a.otRate||0, a.advance||0, a.penalty||0]);
+    });
+  });
+  if (aR.length > 0) {
+    const ws = XLSX.utils.aoa_to_sheet([aH, ...aR]);
+    ws['!cols'] = [{wch:6},{wch:10},{wch:12},{wch:12},{wch:10},{wch:10},{wch:10},{wch:12},{wch:12},{wch:12},{wch:10}];
+    for (let c=0;c<11;c++) { const a=XLSX.utils.encode_cell({r:0,c}); if(ws[a]) ws[a].s=hdr; }
+    applyBorders(ws, aR.length, 11);
+    aSecs.forEach((sec,i)=>{ const bg=i%2===0?frontBg:backBg; const end=i<aSecs.length-1?aSecs[i+1].row:aR.length; for(let r=sec.row;r<end;r++) for(let c=0;c<11;c++){const a=XLSX.utils.encode_cell({r:r+1,c});if(ws[a])ws[a].s={alignment:ctr,border:bdr,fill:bg};} });
+    const m2 = mergeDept(ws, 1, 1, aR.length);
+    if (m2.length) ws['!merges'] = m2;
+    ws['!views'] = [{state:'frozen',ySplit:1}];
+    XLSX.utils.book_append_sheet(wb, ws, '考勤记录表');
+  }
+
+  // === Sheet3: 工资计算表 ===
+  const sH = ['序号','岗位','姓名','入职时间','基本底薪','月基本天数','旷工天数','实际出勤','开工资天数','基础工资','全勤补贴','加班补助','奖金','应发工资','预支工资','罚款','实发工资','签字确认'];
+  let sR = [], sI = 1, sSecs = [];
+  let gB=0,gA=0,gO=0,gBn=0,gP=0,gAd=0,gPe=0,gN=0;
+  ['front','back'].forEach(d => {
+    const emps=empData[d], att=attData[d], dl=d==='front'?'前厅':'后厨';
+    if (!emps.length) return;
+    sSecs.push({row:sR.length, label:dl});
+    let sB=0,sA=0,sO=0,sBn=0,sP=0,sAd=0,sPe=0,sN=0;
+    emps.forEach((e,i) => {
+      const a=att[i]||{absDays:0,workDays:0,otHours:0,otRate:0,advance:0,penalty:0};
+      const act=Math.max(0,(a.workDays||0)-(a.absDays||0));
+      const bW=e.baseSalary?Math.round(e.baseSalary/md*act):0;
+      const ot=Math.round(a.otHours*a.otRate);
+      const py=Math.round(bW+(e.attendance||0)+ot+(e.bonus||0));
+      const ad=Math.round(a.advance||0), pe=Math.round(a.penalty||0), nt=Math.round(py-ad-pe);
+      sB+=bW;sA+=(e.attendance||0);sO+=ot;sBn+=(e.bonus||0);sP+=py;sAd+=ad;sPe+=pe;sN+=nt;
+      sR.push([sI++, dl, e.name||'', e.hireDate||'', e.baseSalary||0, md, a.absDays||0, act, act, bW, e.attendance||0, ot, e.bonus||0, py, ad, pe, nt, salSigs[d][i]||'']);
+    });
+    gB+=sB;gA+=sA;gO+=sO;gBn+=sBn;gP+=sP;gAd+=sAd;gPe+=sPe;gN+=sN;
+    sR.push([dl+' 小计','','','','','','','','',sB,sA,sO,sBn,sP,sAd,sPe,sN,'']);
+  });
+  sR.push(['总计','','','','','','','','',gB,gA,gO,gBn,gP,gAd,gPe,gN,'']);
+  // 签字栏
+  sR.push(['制表人：','','','','','复核人：','','','','','审核人：','','','','','审批人：','','']);
+  sR.push(['_______________','','','','','_______________','','','','','_______________','','','','','_______________','','']);
+
+  if (sR.length > 0) {
+    const ws = XLSX.utils.aoa_to_sheet([sH, ...sR]);
+    ws['!cols'] = Array(18).fill(0).map(()=>({wch:10}));
+    ws['!cols'][17] = {wch:14};
+    for (let c=0;c<18;c++) { const a=XLSX.utils.encode_cell({r:0,c}); if(ws[a]) ws[a].s=hdr; }
+    applyBorders(ws, sR.length, 18);
+    // 部门交替底色
+    sSecs.forEach((sec,i)=>{ const bg=i%2===0?frontBg:backBg; const end=i<sSecs.length-1?sSecs[i+1].row:sR.length-3; for(let r=sec.row;r<end;r++) for(let c=0;c<18;c++){const a=XLSX.utils.encode_cell({r:r+1,c});if(ws[a])ws[a].s={alignment:ctr,border:bdr,fill:bg};} });
+    // 小计/总计样式
+    sR.forEach((row,idx)=>{
+      if (row[0]&&typeof row[0]==='string'&&(row[0].includes('小计')||row[0]==='总计')) {
+        const r=idx+1, st=row[0]==='总计'?totSt:subSt;
+        for(let c=0;c<18;c++){const a=XLSX.utils.encode_cell({r,c});if(ws[a])ws[a].s=st;}
+        ws['!merges'] = ws['!merges']||[];
+        ws['!merges'].push({s:{r,c:0},e:{r,c:1}});
+      }
+    });
+    // 岗位合并
+    const m3 = mergeDept(ws, 1, 1, sR.length-4);
+    ws['!merges'] = ws['!merges']||[];
+    if (m3.length) ws['!merges'].push(...m3);
+    // 冻结首行
+    ws['!views'] = [{state:'frozen',ySplit:1}];
+    // 签字栏合并（每个签字占5/5/5/3列，跨2行）
+    const lr=sR.length-1, nr=sR.length;
+    ws['!merges'].push({s:{r:lr,c:0},e:{r:nr,c:4}},{s:{r:lr,c:5},e:{r:nr,c:9}},{s:{r:lr,c:10},e:{r:nr,c:14}},{s:{r:lr,c:15},e:{r:nr,c:17}});
+    // 签字栏样式
+    const nb = {top:{style:'none'},bottom:{style:'none'},left:{style:'none'},right:{style:'none'}};
+    for(let c=0;c<18;c++) for(let r=lr;r<=nr;r++) {
+      const a=XLSX.utils.encode_cell({r,c});
+      if(ws[a]) ws[a].s={font:{bold:true,sz:12},alignment:ctr,border:nb};
+    }
+    XLSX.utils.book_append_sheet(wb, ws, '工资计算表');
+  }
+
+  if (wb.SheetNames.length===0) { alert('没有数据可导出'); return; }
+  XLSX.writeFile(wb, name+'餐馆_'+ym+'_工资表.xlsx');
 }
 
 // ===== 一键清除全部数据 =====
