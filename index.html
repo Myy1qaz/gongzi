@@ -217,10 +217,10 @@ body{font-family:'Microsoft YaHei',sans-serif;padding:20px;color:#333}
 .dept-title{font-size:15px;font-weight:700;color:#1a73e8;padding:10px 0 6px;border-bottom:2px solid #1a73e8;margin:16px 0 8px}
 .dept-section{break-inside:avoid;page-break-inside:avoid}
 .dept-section .dept-title{margin-top:0}
-table{width:100%;border-collapse:collapse;font-size:12px}
-th,td{border:1px solid #ddd;padding:5px 6px;text-align:center;white-space:nowrap}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{border:1px solid #ddd;padding:6px 8px;text-align:center;white-space:nowrap}
 th{background:#e8f0fe;color:#1a73e8;font-weight:600}
-.sig-col{min-width:80px;width:80px}
+.sig-col{min-width:120px;width:120px}
 .subtotal-row{background:#fff8e1;font-weight:700}
 .subtotal-row td{border-top:2px solid #f9a825}
 .total-row td{background:#e8f5e9;font-weight:700;border-top:3px double #2e7d32;font-size:13px}
@@ -769,7 +769,7 @@ function exportExcel() {
   ['front','back'].forEach(d => {
     const emps=empData[d], att=attData[d], dl=d==='front'?'前厅':'后厨';
     if (!emps.length) return;
-    sSecs.push({row:sR.length, label:dl});
+    sSecs.push({row:sR.length+1, label:dl}); // +1 because title row
     let sB=0,sA=0,sO=0,sBn=0,sP=0,sAd=0,sPe=0,sN=0;
     emps.forEach((e,i) => {
       const a=att[i]||{absDays:0,workDays:0,otHours:0,otRate:0,advance:0,penalty:0};
@@ -785,42 +785,86 @@ function exportExcel() {
     sR.push([dl+' 小计','','','','','','','','',sB,sA,sO,sBn,sP,sAd,sPe,sN,'']);
   });
   sR.push(['总计','','','','','','','','',gB,gA,gO,gBn,gP,gAd,gPe,gN,'']);
-  // 签字栏
+  // 签字栏（两行：第一行包含标签和空白，第二行全空，4个签字框平分18列）
   sR.push(['制表人：','','','','','复核人：','','','','','审核人：','','','','','审批人：','','']);
-  sR.push(['_______________','','','','','_______________','','','','','_______________','','','','','_______________','','']);
+  sR.push(['','','','','','','','','','','','','','','','','','','']);
 
   if (sR.length > 0) {
-    const ws = XLSX.utils.aoa_to_sheet([sH, ...sR]);
-    ws['!cols'] = Array(18).fill(0).map(()=>({wch:10}));
-    ws['!cols'][17] = {wch:14};
-    for (let c=0;c<18;c++) { const a=XLSX.utils.encode_cell({r:0,c}); if(ws[a]) ws[a].s=hdr; }
-    applyBorders(ws, sR.length, 18);
-    // 部门交替底色
-    sSecs.forEach((sec,i)=>{ const bg=i%2===0?frontBg:backBg; const end=i<sSecs.length-1?sSecs[i+1].row:sR.length-3; for(let r=sec.row;r<end;r++) for(let c=0;c<18;c++){const a=XLSX.utils.encode_cell({r:r+1,c});if(ws[a])ws[a].s={alignment:ctr,border:bdr,fill:bg};} });
-    // 小计/总计样式
+    // 添加标题行
+    const titleRow = [name + '餐馆 ' + ym + '工资计算表'];
+    for (let i=1; i<18; i++) titleRow.push('');
+    const ws = XLSX.utils.aoa_to_sheet([titleRow, sH, ...sR]);
+    
+    // === 合并单元格 ===
+    ws['!merges'] = [];
+    // 1. 标题行合并（第0行，18列）
+    ws['!merges'].push({s:{r:0,c:0},e:{r:0,c:17}});
+    
+    // 2. 小计/总计行合并（第0-1列）
     sR.forEach((row,idx)=>{
       if (row[0]&&typeof row[0]==='string'&&(row[0].includes('小计')||row[0]==='总计')) {
-        const r=idx+1, st=row[0]==='总计'?totSt:subSt;
-        for(let c=0;c<18;c++){const a=XLSX.utils.encode_cell({r,c});if(ws[a])ws[a].s=st;}
-        ws['!merges'] = ws['!merges']||[];
+        const r=idx+2; // +2 for title and header
         ws['!merges'].push({s:{r,c:0},e:{r,c:1}});
       }
     });
-    // 岗位合并
-    const m3 = mergeDept(ws, 1, 1, sR.length-4);
-    ws['!merges'] = ws['!merges']||[];
+    
+    // 3. 岗位合并（从第2行开始，排除小计/总计/签字栏）
+    const m3 = mergeDept(ws, 1, 2, sR.length-2);
     if (m3.length) ws['!merges'].push(...m3);
-    // 冻结首行
-    ws['!views'] = [{state:'frozen',ySplit:1}];
-    // 签字栏合并（每个签字占5/5/5/3列，跨2行）
-    const lr=sR.length-1, nr=sR.length;
-    ws['!merges'].push({s:{r:lr,c:0},e:{r:nr,c:4}},{s:{r:lr,c:5},e:{r:nr,c:9}},{s:{r:lr,c:10},e:{r:nr,c:14}},{s:{r:lr,c:15},e:{r:nr,c:17}});
-    // 签字栏样式
+    
+    // 4. 签字栏合并（最后两行，4个签字框平分18列，每个跨2行高度）
+    const sigRow1 = sR.length - 1; // 签字标签行在sR中的索引
+    const sigRow2 = sR.length;     // 签字空行在sR中的索引
+    const sheetSigRow1 = sigRow1 + 2; // Sheet实际行号
+    const sheetSigRow2 = sigRow2 + 2;
+    // 18列平分为4份：5+5+5+3
+    ws['!merges'].push(
+      {s:{r:sheetSigRow1,c:0},e:{r:sheetSigRow2,c:4}},   // 制表人：5列，跨2行
+      {s:{r:sheetSigRow1,c:5},e:{r:sheetSigRow2,c:9}},   // 复核人：5列，跨2行
+      {s:{r:sheetSigRow1,c:10},e:{r:sheetSigRow2,c:14}}, // 审核人：5列，跨2行
+      {s:{r:sheetSigRow1,c:15},e:{r:sheetSigRow2,c:17}}  // 审批人：3列，跨2行
+    );
+    
+    // === 样式设置 ===
+    // 标题行样式：居中加粗，带边框
+    const titleAddr = XLSX.utils.encode_cell({r:0,c:0});
+    if (ws[titleAddr]) ws[titleAddr].s = {font:{bold:true,sz:14},alignment:{horizontal:'center',vertical:'center'},border:bdr};
+    
+    // 表头样式（第1行）
+    for (let c=0;c<18;c++) { const a=XLSX.utils.encode_cell({r:1,c}); if(ws[a]) ws[a].s=hdr; }
+    
+    // 数据行边框和底色（排除签字栏）
+    applyBorders(ws, sR.length-1, 18); // 只应用到签字栏之前
+    sSecs.forEach((sec,i)=>{ 
+      const bg=i%2===0?frontBg:backBg; 
+      const end=i<sSecs.length-1?sSecs[i+1].row:sR.length-1; 
+      for(let r=sec.row;r<end;r++) 
+        for(let c=0;c<18;c++){
+          const a=XLSX.utils.encode_cell({r:r+1,c});
+          if(ws[a]) ws[a].s={alignment:ctr,border:bdr,fill:bg};
+        } 
+    });
+    
+    // 小计/总计样式
+    sR.forEach((row,idx)=>{
+      if (row[0]&&typeof row[0]==='string'&&(row[0].includes('小计')||row[0]==='总计')) {
+        const r=idx+2, st=row[0]==='总计'?totSt:subSt;
+        for(let c=0;c<18;c++){const a=XLSX.utils.encode_cell({r,c});if(ws[a])ws[a].s=st;}
+      }
+    });
+    
+    // 签字栏样式：无边框、左对齐加粗、字号12、垂直居中
     const nb = {top:{style:'none'},bottom:{style:'none'},left:{style:'none'},right:{style:'none'}};
-    for(let c=0;c<18;c++) for(let r=lr;r<=nr;r++) {
-      const a=XLSX.utils.encode_cell({r,c});
-      if(ws[a]) ws[a].s={font:{bold:true,sz:12},alignment:ctr,border:nb};
+    for(let c=0;c<18;c++) {
+      for(let r=sheetSigRow1;r<=sheetSigRow2;r++) {
+        const a=XLSX.utils.encode_cell({r,c});
+        if(ws[a]) ws[a].s={font:{bold:true,sz:12},alignment:{horizontal:'left',vertical:'center'},border:nb};
+      }
     }
+    
+    // 冻结前两行（标题+表头）
+    ws['!views'] = [{state:'frozen',ySplit:2}];
+    
     XLSX.utils.book_append_sheet(wb, ws, '工资计算表');
   }
 
